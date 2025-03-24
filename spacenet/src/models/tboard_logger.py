@@ -17,7 +17,7 @@
 
 from chainer.training import extension
 from chainer import Variable
-import cupy
+from cupy._core.core import ndarray  # Add this import near the top of the file
 
 class TensorboardLogger(extension.Extension):
 
@@ -35,7 +35,7 @@ class TensorboardLogger(extension.Extension):
             if (self._entries is not None) and (k not in self._entries):
                 continue
             
-            if isinstance(v, cupy.core.core.ndarray):
+            if isinstance(v, ndarray):
                 v = Variable(v)
             
             self._logger.add_scalar(k, v, trainer.updater.iteration)

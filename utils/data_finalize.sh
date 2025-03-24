@@ -100,6 +100,6 @@ mv ./xab val.txt
 rm all_images.txt
 
 # Running the mean creation code over the images
-python "$XBDIR"/spacenet/src/features/compute_mean.py "$input"/spacenet_gt/dataSet/train.txt --root "$input"/spacenet_gt/images/ --output "$input"/spacenet_gt/dataSet/mean.npy 
+python3 "$XBDIR"/spacenet/src/features/compute_mean.py "$input"/spacenet_gt/dataSet/train.txt --root "$input"/spacenet_gt/images/ --output "$input"/spacenet_gt/dataSet/mean.npy 
 
 echo "Done!" 
