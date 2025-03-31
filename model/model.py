@@ -40,16 +40,21 @@ import ast
 from keras import Sequential
 from keras.layers import Conv2D, MaxPooling2D, Dense, Flatten, Add, Input, Concatenate
 from keras.models import Model
-from keras.applications.resnet50 import ResNet50
-from keras import backend as K
+# from keras.applications.resnet50 import ResNet50
+from tensorflow.keras.applications import ResNet50
+import tensorflow.keras.backend as K 
 
 
 ###
 # Loss function for ordinal loss from https://github.com/JHart96/keras_ordinal_categorical_crossentropy
 ###
 def ordinal_loss(y_true, y_pred):
-    weights = K.cast(K.abs(K.argmax(y_true, axis=1) - K.argmax(y_pred, axis=1))/(K.int_shape(y_pred)[1] - 1), dtype='float32')
-    return (1.0 + weights) * keras.losses.categorical_crossentropy(y_true, y_pred )
+    y_true = tf.cast(y_true, dtype=tf.float32)
+    y_pred = tf.cast(y_pred, dtype=tf.float32)
+    diff = tf.abs(tf.argmax(y_true, axis=1) - tf.argmax(y_pred, axis=1))
+    num_classes = tf.cast(tf.shape(y_pred)[1], tf.float32)
+    weights = tf.cast(diff, tf.float32) / (num_classes - 1.0)
+    return tf.reduce_mean(weights * tf.keras.losses.categorical_crossentropy(y_true, y_pred))
 
 
 ###

@@ -1,4 +1,9 @@
 venv
-spacenet*
 requirements.txt
+spacenet/models/logs*
+spacenet/src/models/__pycache__*
 xBD*
+train*
+model/polygon_images*
+model/damage_classifier_model*
+weights*

@@ -82,7 +82,9 @@ for disaster in $disasters; do
     masks=`/bin/ls -1 "$input"/"$disaster"/masks`
     for mask in $masks; do
         cp "$input"/"$disaster"/masks/$mask "$input"/spacenet_gt/labels
-        cp "$input"/"$disaster"/images/$mask "$input"/spacenet_gt/images
+        # Strip UUID if necessary
+        filename=$(echo "$mask" | cut -d'_' -f1-4).png
+        cp "$input"/"$disaster"/images/"$filename" "$input"/spacenet_gt/images
     done
 done
 

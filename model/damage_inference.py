@@ -41,6 +41,7 @@ from model import *
 from keras import Sequential
 from keras.layers import Conv2D, MaxPooling2D, Dense
 from model import *
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 # Configurations
 NUM_WORKERS = 4
@@ -64,8 +65,7 @@ damage_intensity_encoding[0] = 'no-damage'
 ###
 def create_generator(test_df, test_dir, output_json_path):
 
-    gen = keras.preprocessing.image.ImageDataGenerator(
-                             rescale=1.4)
+    gen = ImageDataGenerator(rescale=1.4)
 
     try:
         gen_flow = gen.flow_from_dataframe(dataframe=test_df,
@@ -92,12 +92,11 @@ def run_inference(test_data, test_csv, model_weights, output_json_path):
    model = generate_xBD_baseline_model()
    model.load_weights(model_weights)
 
-   adam = keras.optimizers.Adam(lr=LEARNING_RATE,
-                                    beta_1=0.9,
-                                    beta_2=0.999,
-                                    epsilon=None,
-                                    decay=0.0,
-                                    amsgrad=False)
+   adam = keras.optimizers.Adam(learning_rate=LEARNING_RATE,
+                             beta_1=0.9,
+                             beta_2=0.999,
+                             amsgrad=False)
+
 
 
    model.compile(loss=ordinal_loss, optimizer=adam, metrics=['accuracy'])
@@ -112,7 +111,7 @@ def run_inference(test_data, test_csv, model_weights, output_json_path):
 
    tensorboard_callbacks = keras.callbacks.TensorBoard(log_dir=LOG_DIR, histogram_freq=1)
 
-   predictions = model.predict_generator(generator=test_gen,
+   predictions = model.predict(test_gen,
                     callbacks=[tensorboard_callbacks],
                     verbose=1)
 

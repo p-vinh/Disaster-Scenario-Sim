@@ -41,7 +41,9 @@ from keras import Sequential
 from keras.layers import Conv2D, MaxPooling2D, Dense, Flatten, Add, Input, Concatenate
 from keras.models import Model
 from keras.applications.resnet50 import ResNet50
-from keras import backend as K
+import tensorflow.keras.backend as K 
+
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 from model import *
 
@@ -55,7 +57,7 @@ NUM_EPOCHS = 100
 LEARNING_RATE = 0.0001
 RANDOM_SEED = 123
 LOG_STEP = 150
-LOG_DIR = '/path/to/logs' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+LOG_DIR = "/mnt/c/Users/Khois/OneDrive/Desktop/Github_local/Disaster-Scenario-Sim/model/logs"
 
 damage_intensity_encoding = dict()
 damage_intensity_encoding[3] = '3'
@@ -107,7 +109,7 @@ def validation_generator(test_csv, test_dir):
     df = pd.read_csv(test_csv)
     df = df.replace({"labels" : damage_intensity_encoding })
 
-    gen = keras.preprocessing.image.ImageDataGenerator(
+    gen = ImageDataGenerator(
                              rescale=1/255.)
 
 
@@ -128,7 +130,7 @@ def validation_generator(test_csv, test_dir):
 def augment_data(df, in_dir):
 
     df = df.replace({"labels" : damage_intensity_encoding })
-    gen = keras.preprocessing.image.ImageDataGenerator(horizontal_flip=True,
+    gen = ImageDataGenerator(horizontal_flip=True,
                              vertical_flip=True,
                              width_shift_range=0.1,
                              height_shift_range=0.1,
@@ -153,48 +155,48 @@ def train_model(train_data, train_csv, test_data, test_csv, model_in, model_out)
         model.load_weights(model_in)
 
     df = pd.read_csv(train_csv)
-    class_weights = compute_class_weight('balanced', np.unique(df['labels'].to_list()), df['labels'].to_list());
+    class_weights = compute_class_weight(
+        class_weight='balanced',
+        classes=np.unique(df['labels'].to_list()),
+        y=df['labels'].to_list()
+    )
+
     d_class_weights = dict(enumerate(class_weights))
 
     samples = df['uuid'].count()
-    steps = np.ceil(samples/BATCH_SIZE)
+    steps = int(np.ceil(samples / BATCH_SIZE))
 
     # Augments the training data
     train_gen_flow = augment_data(df, train_data)
 
     #Set up tensorboard logging
-    tensorboard_callbacks = keras.callbacks.TensorBoard(log_dir=LOG_DIR,
-                                                        batch_size=BATCH_SIZE)
+    tensorboard_callbacks = keras.callbacks.TensorBoard(log_dir=LOG_DIR, write_graph=True, write_images=True)
+
 
     
     #Filepath to save model weights
-    filepath = model_out + "-saved-model-{epoch:02d}-{accuracy:.2f}.hdf5"
-    checkpoints = keras.callbacks.ModelCheckpoint(filepath,
-                                                    monitor=['loss', 'accuracy'],
-                                                    verbose=1,
-                                                    save_best_only=False,
-                                                    mode='max')
+    filepath = os.path.join(model_out, "damage_classifier_model-{epoch:02d}-{accuracy:.2f}.keras")
+    checkpoints = keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, monitor="accuracy")
+
 
     #Adds adam optimizer
-    adam = keras.optimizers.Adam(lr=LEARNING_RATE,
+    adam = keras.optimizers.Adam(learning_rate=LEARNING_RATE,
                                     beta_1=0.9,
                                     beta_2=0.999,
-                                    decay=0.0,
                                     amsgrad=False)
 
 
     model.compile(loss=ordinal_loss, optimizer=adam, metrics=['accuracy', f1])
 
     #Training begins
-    model.fit_generator(generator=train_gen_flow,
-                        steps_per_epoch=steps,
-                        epochs=NUM_EPOCHS,
-                        workers=NUM_WORKERS,
-                        use_multiprocessing=True,
-                        class_weight=d_class_weights,
-                        callbacks=[tensorboard_callbacks, checkpoints],
-                        verbose=1)
-
+    model.fit(
+        x=train_gen_flow,
+        steps_per_epoch=steps,
+        epochs=NUM_EPOCHS,
+        class_weight=d_class_weights,
+        callbacks=[tensorboard_callbacks, checkpoints],
+        verbose=1
+    )
 
     #Evalulate f1 weighted scores on validation set
     validation_gen = validation_generator(test_csv, test_data)
