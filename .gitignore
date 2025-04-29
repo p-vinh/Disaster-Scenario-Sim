@@ -7,3 +7,6 @@ train*
 model/polygon_images*
 model/damage_classifier_model*
 weights*
+GAN/log*
+GAN/checkpoints*
+output*
