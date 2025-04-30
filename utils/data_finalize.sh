@@ -23,8 +23,8 @@ function trap_ctrlc ()
     # perform cleanup here
     echo "Ctrl-C or Error caught...performing clean up"
 
-    if [ -d "$input"/spacenet_gt ]; then
-           rm -rf "$input"/spacenet_gt
+    if [ -d "$input/spacenet_gt" ]; then
+           rm -rf "$input/spacenet_gt"
     fi
 
     exit 99
@@ -68,28 +68,42 @@ do
      esac
 done
 
-
 # Get list of disasters to iterate over 
 disasters=`/bin/ls -1 "$input"`
+echo "Disasters: $disasters"
 
 # Making the spacenet training directory 
-mkdir -p "$input"/spacenet_gt/images
-mkdir -p "$input"/spacenet_gt/labels
-mkdir -p "$input"/spacenet_gt/dataSet
+mkdir -p "$input/spacenet_gt/images"
+mkdir -p "$input/spacenet_gt/labels"
+mkdir -p "$input/spacenet_gt/dataSet"
+
+# Check if directories were created successfully
+if [ ! -d "$input/spacenet_gt/images" ] || [ ! -d "$input/spacenet_gt/labels" ] || [ ! -d "$input/spacenet_gt/dataSet" ]; then
+    echo "Error: Failed to create necessary directories." >&2
+    exit 1
+fi
+
+echo "Directories created successfully"
 
 # for each disaster, copy the pre images and labels to the spacenet training directory
 for disaster in $disasters; do
-    masks=`/bin/ls -1 "$input"/"$disaster"/masks`
+    # Skip the spacenet_gt directory
+    if [ "$disaster" == "spacenet_gt" ]; then
+        continue
+    fi
+
+    masks=`/bin/ls -1 "$input/$disaster/masks"`
     for mask in $masks; do
-        cp "$input"/"$disaster"/masks/$mask "$input"/spacenet_gt/labels
-        cp "$input"/"$disaster"/images/$mask "$input"/spacenet_gt/images
+        cp "$input/$disaster/masks/$mask" "$input/spacenet_gt/labels"
+        cp "$input/$disaster/images/$mask" "$input/spacenet_gt/images"
     done
 done
 
+images=`/bin/ls -1 "$input/spacenet_gt/images"`
 # Listing all files to do the split
-cd "$input"/spacenet_gt/dataSet/
+cd "$input/spacenet_gt/dataSet/"
 touch all_images.txt
-/bin/ls -1 "$input"/spacenet_gt/images > all_images.txt
+echo "$images" > all_images.txt
 
 line_count=`cat all_images.txt | wc -l`
 lines_to_split=$(bc -l <<< "$line_count"*"$split")
@@ -99,7 +113,8 @@ mv ./xaa train.txt
 mv ./xab val.txt
 rm all_images.txt
 
+echo "$XBDIR/spacenet/src/features/"
 # Running the mean creation code over the images
-python "$XBDIR"/spacenet/src/features/compute_mean.py "$input"/spacenet_gt/dataSet/train.txt --root "$input"/spacenet_gt/images/ --output "$input"/spacenet_gt/dataSet/mean.npy 
+/home/vinnie/.pyenv/versions/disaster-sim-env/bin/python "$XBDIR/spacenet/src/features/compute_mean.py" "$input/spacenet_gt/dataSet/train.txt" --root "$input/spacenet_gt/images/" --output "$input/spacenet_gt/dataSet/mean.npy" 
 
-echo "Done!" 
+echo "Done!"

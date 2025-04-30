@@ -1,1 +1,16 @@
 venv
+/classification
+/__pycache__
+/classification_logs
+/test
+/train
+/xBD
+/model/checkpoints
+!/checkpoints/ckpt_epoch401.pt
+/model/baseline_trial
+!/model/baseline_trial/damage_classifier_model-01-0.41.keras
+/spacenet/src/models/__pycache__
+spacenet/models/logs/
+/model/__pycache__/
+/model/logs/
+/spacenet/inference/__pycache__/

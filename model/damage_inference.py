@@ -35,11 +35,11 @@ from shapely.geometry import Polygon
 from collections import defaultdict
 
 import tensorflow as tf
-import keras
-from model import * 
-
-from keras import Sequential
-from keras.layers import Conv2D, MaxPooling2D, Dense
+from tensorflow import keras
+from tensorflow.keras.applications.resnet50 import ResNet50
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dense
 from model import *
 
 # Configurations
@@ -92,7 +92,7 @@ def run_inference(test_data, test_csv, model_weights, output_json_path):
    model = generate_xBD_baseline_model()
    model.load_weights(model_weights)
 
-   adam = keras.optimizers.Adam(lr=LEARNING_RATE,
+   adam = keras.optimizers.Adam(learning_rate=LEARNING_RATE,
                                     beta_1=0.9,
                                     beta_2=0.999,
                                     epsilon=None,
@@ -112,9 +112,9 @@ def run_inference(test_data, test_csv, model_weights, output_json_path):
 
    tensorboard_callbacks = keras.callbacks.TensorBoard(log_dir=LOG_DIR, histogram_freq=1)
 
-   predictions = model.predict_generator(generator=test_gen,
-                    callbacks=[tensorboard_callbacks],
-                    verbose=1)
+   predictions = model.predict(test_gen,
+                               callbacks=[tensorboard_callbacks],
+                               verbose=1)
 
    predicted_indices = np.argmax(predictions, axis=1)
    predictions_json = dict()

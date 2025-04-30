@@ -88,9 +88,28 @@ def train_model():
     # iteration, which will be used by the PrintReport extension below.
     model = UNet()
     if args.gpu >= 0:
-        # Make a specified GPU current
-        chainer.cuda.get_device_from_id(args.gpu).use()
-        model.to_gpu()  # Copy the model to the GPU
+        try:
+            print("Testing GPU availability...")
+            # Check if CUDA is properly configured
+            chainer.cuda.check_cuda_available()
+            print("CUDA is available. Attempting to use device {}...".format(args.gpu))
+            
+            # Print diagnostic info
+            import os
+            print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
+            print(f"LD_LIBRARY_PATH: {os.environ.get('LD_LIBRARY_PATH', 'Not set')}")
+            
+            # Try to use the GPU
+            device = chainer.cuda.get_device_from_id(args.gpu)
+            device.use()
+            model.to_gpu()  # Copy the model to the GPU
+            print("Successfully initialized GPU")
+        except Exception as e:
+            print(f"Error initializing GPU: {str(e)}")
+            print("Falling back to CPU...")
+            args.gpu = -1
+            # Re-import the CPU version of TensorboardLogger
+            from tboard_logger_cpu import TensorboardLogger
 
     # Setup an optimizer
     optimizer = chainer.optimizers.Adam()

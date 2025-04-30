@@ -255,6 +255,10 @@ if __name__ == "__main__":
         json_dir = path.join(args.input, disaster, 'labels')
         output_dir = path.join(args.input, disaster, 'masks')
 
+        print(f"Image directory: {image_dir}")
+        print(f"JSON directory: {json_dir}")
+        print(f"Output directory: {output_dir}")
+    
         if not path.isdir(image_dir):
             print(
                 "Error, could not find image files in {}.\n\n"

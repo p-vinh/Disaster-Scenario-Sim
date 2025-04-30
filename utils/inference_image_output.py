@@ -19,6 +19,7 @@ from shapely import wkt
 from shapely.geometry import Polygon
 import numpy as np 
 from cv2 import fillPoly, imwrite
+import os
 
 def open_json(json_file_path):
     """

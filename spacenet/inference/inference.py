@@ -17,7 +17,7 @@ import resource
 import sys
 sys.path.append('../src/models')
 
-from segmentation_cpu import SegmentationModel as Model
+from segmentation import SegmentationModel as Model
 from os import path
 from PIL import Image
 import numpy as np

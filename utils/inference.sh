@@ -131,7 +131,7 @@ fi
 cd "$XBDIR"/spacenet/inference/
 
 # Quietly running the localization inference to output a json with the predicted polygons from the supplied input image
-printf "Running localization\n"
+# printf "Running localization\n"
 python3 ./inference.py --input "$input" --weights "$localization_weights" --mean "$XBDIR"/weights/mean.npy --output "$label_temp"/"${input_image%.*}".json >> "$LOGFILE" 2>&1
 
 printf "\n" >> "$LOGFILE"
@@ -142,12 +142,12 @@ cd "$XBDIR"/model
 # Replace the pre image here with the post
 # We need to do this so the classification inference pulls the images from the post 
 # Since post is where the damage occurs
-printf "Grabbing post image file for classification\n"
+# printf "Grabbing post image file for classification\n"
 disaster_post_file="$input_post"
 
 mkdir -p "$inference_base"/output_polygons
 
-printf "Running classification\n" 
+# printf "Running classification\n" 
 
 # Extracting polygons from post image 
 python3 ./process_data_inference.py --input_img "$disaster_post_file" --label_path "$label_temp"/"${input_image%.*}".json --output_dir "$inference_base"/output_polygons --output_csv "$inference_base"/output.csv >> "$LOGFILE" 2>&1
@@ -158,18 +158,18 @@ python3 ./damage_inference.py --test_data "$inference_base"/output_polygons --te
 printf "\n" >> "$LOGFILE"
 
 # Combining the predicted polygons with the predicted labels, based off a UUID generated during the localization inference stage  
-printf "Formatting json and scoring image\n"
+# printf "Formatting json and scoring image\n"
 python3 "$XBDIR"/utils/combine_jsons.py --polys "$label_temp"/"${input_image%.*}".json --classes /tmp/inference/classification_inference.json --output "$inference_base/inference.json" >> "$LOGFILE" 2>&1
 printf "\n" >> "$LOGFILE"
 
 # Transforming the inference json file to the image required for scoring
-printf "Finalizing output file" 
+# printf "Finalizing output file" 
 python3 "$XBDIR"/utils/inference_image_output.py --input "$inference_base"/inference.json --output "$output_file"  >> "$LOGFILE" 2>&1
 
 #Cleaning up by removing the temporary working directory we created
-printf "Cleaning up\n"
+# printf "Cleaning up\n"
 rm -rf "$inference_base"
 
 printf "==========\n" >> "$LOGFILE"
-printf "Done!\n"
+# printf "Done!\n"
 
