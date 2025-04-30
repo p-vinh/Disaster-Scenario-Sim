@@ -15,3 +15,4 @@ spacenet/models/logs/
 /model/logs/
 /spacenet/inference/__pycache__/
 .venv
+spacenet/src/models/cuda_12.6.0_560.28.03_linux.run
