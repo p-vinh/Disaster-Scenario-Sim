@@ -6,7 +6,8 @@ venv
 /train
 /xBD
 /model/checkpoints
-!/checkpoints/ckpt_epoch401.pt
+!/model/checkpoints/ckpt_epoch401.pt
+!/model/checkpoints/ckpt_epoch20.pt
 /model/baseline_trial
 !/model/baseline_trial/damage_classifier_model-01-0.41.keras
 /spacenet/src/models/__pycache__

@@ -1,10 +1,5 @@
-# %% [markdown]
-# # pix2pix: Image-to-image translation with a conditional GAN
 
-# %%
 import os
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset
@@ -25,23 +20,11 @@ import json
 from matplotlib import pyplot as plt
 
 
-# %%
 base_dir = os.getcwd()
 dataset_dir = os.path.abspath(os.path.join(base_dir, "..", "train"))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(device)
 
-# %%
-sample_image_path = os.path.join(dataset_dir, 'images', 'guatemala-volcano_00000013_post_disaster.png')
-
-# Check if the file exists
-if not os.path.exists(sample_image_path):
-    print(f"File not found: {sample_image_path}")
-else:
-    # Load the sample image
-    sample_image = torchvision.io.read_image(sample_image_path)
-    print(sample_image.shape)
-
-# %%
 class DisasterDataset(Dataset):
     """
     Dataset for DisasterGAN: loads pre- and post-disaster image pairs and disaster-type labels.
@@ -85,8 +68,13 @@ class DisasterDataset(Dataset):
 
     def __getitem__(self, idx):
         pre_path, post_path, row, col = self.samples[idx]
-        pre_img  = Image.open(pre_path).convert('RGB')
-        post_img = Image.open(post_path).convert('RGB')
+        try:
+            pre_img  = Image.open(pre_path).convert('RGB')
+            post_img = Image.open(post_path).convert('RGB')
+        except OSError as e:
+            print(f"Error loading image {pre_path} or {post_path}: {e}")
+            return self.__getitem__((idx + 1) % len(self))
+        
         # compute crop box
         left   = col * self.patch_size
         top    = row * self.patch_size
@@ -111,8 +99,9 @@ transform = transforms.Compose([
 
 image_dir = os.path.join(dataset_dir, 'images')
 label_dir = os.path.join(dataset_dir, 'labels')
+
 dataset = DisasterDataset(image_dir, label_dir, transform=transform)
-dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=2)
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
 
 # Add these two lines:
 print("Disaster types → index map:", dataset.type2idx)
@@ -125,7 +114,6 @@ print(f"Full-size pre/post pairs: {len(dataset.pre_images)}")
 print(f"Patches per pair: 16")
 print(f"Total (pre→post) patch-pairs in dataset: {len(dataset)}")
 
-
 pre_image, post_image, c_att, c_p_att = next(iter(dataloader))
 
 print(f"Pre-disaster image shape: {pre_image.shape}")
@@ -133,20 +121,8 @@ print(f"Post-disaster image shape: {post_image.shape}")
 print(f"Pre-disaster attribute: {c_att[0]}")
 print(f"Post-disaster attribute: {c_p_att[0]}")
 print(dataset.type2idx)
-plt.figure(figsize=(10, 5))
-plt.subplot(1, 2, 1)
-plt.title("Pre-Disaster Image")
-plt.imshow(pre_image[0].permute(1, 2, 0).numpy() * 0.5 + 0.5)  # De-normalize for visualization
-plt.axis("off")
-
-plt.subplot(1, 2, 2)
-plt.title("Post-Disaster Image")
-plt.imshow(post_image[0].permute(1, 2, 0).numpy() * 0.5 + 0.5)  # De-normalize for visualization
-plt.axis("off")
-plt.show()
 
 
-# %%
 class ResidualBlock(nn.Module):
     def __init__(self, channels, dropout=0.5):
         super().__init__()
@@ -189,7 +165,7 @@ class Generator(nn.Module):
     def forward(self, x, c):
         # build attribute map and concat
         B,C,H,W = x.shape[0], x.shape[1], x.shape[2], x.shape[3]
-        c_onehot = F.one_hot(c, num_classes=self.attr_dim).float()
+        c_onehot = F.one_hot(c, num_classes=self.attr_dim).float().to(x.device)
         c_map = c_onehot.view(B, -1, 1, 1).expand(B, self.attr_dim, H, W)
         h = self.enc(torch.cat([x, c_map], dim=1))
         h = self.res_blocks(h)
@@ -242,7 +218,11 @@ class TrainerStarGAN:
         self.G_reconstruct = Generator(img_channels=3,  attr_dim=args.attr_dim).to(device)
         self.D             = Discriminator(in_channels=6, n_classes=args.attr_dim).to(device)
 
-
+        if torch.cuda.device_count() > 1:
+           print(f"Found {torch.cuda.device_count()} GPUs, parallelizing…")
+           self.G             = nn.DataParallel(self.G)
+           self.G_reconstruct = nn.DataParallel(self.G_reconstruct)
+           self.D             = nn.DataParallel(self.D)
 
         optimizer_ge = optim.Adam(
             self.G.parameters(),
@@ -277,7 +257,7 @@ class TrainerStarGAN:
             ge_losses = 0
             d_losses = 0
             
-            if epoch % 50 == 0:
+            if epoch % 10 == 0:
                 # Save the model checkpoint
                 print(f"Saving checkpoint at epoch {epoch}")
                 ckpt = {
@@ -367,17 +347,17 @@ class TrainerStarGAN:
         self.writer.close()
 
 
-num_epochs = 200
+num_epochs = 150
 lr_adam = 2e-4
 cls_weight = 1.0 # lambda_cls
 recon_weight = 10.0 # lambda_rec
-resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch200.pt')  
+resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch20.pt')  
 
 class Args:
     def __init__(self):
         self.num_epochs = num_epochs
         self.lr_adam = lr_adam
-        self.resume = None
+        self.resume = resume
         self.cls_weight = cls_weight
         self.recon_weight = recon_weight
         self.attr_dim = attr_dim # (0-6) {None, Fire, Flood, Wind, Earthquake, Tsunami, Volcano}
