@@ -8,22 +8,18 @@ from torchvision import transforms
 from torch.utils.tensorboard import SummaryWriter
 
 import torch.nn.functional as F
-from torch.autograd import Variable
 import torchvision.utils as vutils
-import torchvision
 from barbar import Bar
-from torchvision.models import resnet18
 import pathlib
 import json
 
-
-from matplotlib import pyplot as plt
 
 
 base_dir = os.getcwd()
 dataset_dir = os.path.abspath(os.path.join(base_dir, "..", "train"))
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
+print("Dataset Dir: ", dataset_dir)
 
 class DisasterDataset(Dataset):
     """
@@ -101,7 +97,7 @@ image_dir = os.path.join(dataset_dir, 'images')
 label_dir = os.path.join(dataset_dir, 'labels')
 
 dataset = DisasterDataset(image_dir, label_dir, transform=transform)
-dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
+dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4)
 
 # Add these two lines:
 print("Disaster types → index map:", dataset.type2idx)
@@ -138,8 +134,6 @@ class ResidualBlock(nn.Module):
     def forward(self, x):
         return x + self.block(x)
     
-
-
 class Generator(nn.Module):
     """
     conditional generator G: takes X and one-hot attr C (size=5),
@@ -171,7 +165,6 @@ class Generator(nn.Module):
         h = self.res_blocks(h)
         return self.dec(h)
 
-# %%
 class Discriminator(nn.Module):
     """
     PatchGAN discriminator with source & auxiliary classifier heads
@@ -239,7 +232,7 @@ class TrainerStarGAN:
             if os.path.isfile(ckpt_path):
                 ckpt = torch.load(ckpt_path, map_location=self.device)
                 self.G.load_state_dict(ckpt['G'])
-                self.E.load_state_dict(ckpt['E'])
+                self.G_reconstruct.load_state_dict(ckpt['G_reconstruct'])
                 self.D.load_state_dict(ckpt['D'])
                 optimizer_ge.load_state_dict(ckpt['optimizer_ge'])
                 optimizer_d.load_state_dict(ckpt['optimizer_d'])
@@ -251,25 +244,17 @@ class TrainerStarGAN:
         reconstruction_criterion = nn.L1Loss()
         # weights (λ_cls, λ_rec) from paper Sec. 4.2.1
         cls_weight = getattr(self.args, 'cls_weight', 1)
-        recon_weight = getattr(self.args, 'recon_weight', 100.0)
+        recon_weight = getattr(self.args, 'recon_weight', 10.0)
+
+        fixed_pre, fixed_post, fixed_c_pre, fixed_c_post = next(iter(self.train_loader))
+        fixed_pre, fixed_post = fixed_pre.to(self.device), fixed_post.to(self.device)
+        fixed_c_pre, fixed_c_post = fixed_c_pre.to(self.device), fixed_c_post.to(self.device)
 
         for epoch in range(start_epoch, self.args.num_epochs + 1):
+            self.G.train(); self.G_reconstruct.train(); self.D.train()
             ge_losses = 0
             d_losses = 0
             
-            if epoch % 10 == 0:
-                # Save the model checkpoint
-                print(f"Saving checkpoint at epoch {epoch}")
-                ckpt = {
-                    'epoch': epoch,
-                    'G': self.G.state_dict(),
-                    'G_reconstruct': self.G_reconstruct.state_dict(),
-                    'D': self.D.state_dict(),
-                    'optimizer_ge': optimizer_ge.state_dict(),
-                    'optimizer_d': optimizer_d.state_dict(),
-                }
-                torch.save(ckpt, os.path.join(self.checkpoint_dir, f'ckpt_epoch{epoch}.pt'))
-
             for pre_image, post_image, c_d, c_p_att in Bar(self.train_loader):
                 # Move data to device
                 pre_image, post_image, c_d, c_p_att = (
@@ -292,7 +277,7 @@ class TrainerStarGAN:
                 
                 # fake
                 fake_post = self.G(pre_image, c_p_att).detach()
-                fake_pair = torch.cat([post_image, fake_post], dim=1) # Focus on the post-disaster image
+                fake_pair = torch.cat([pre_image, fake_post], dim=1) # Focus on the post-disaster image
                 fake_src, _ = self.D(fake_pair)
                 y_fake = torch.zeros_like(fake_src)
                 loss_d_fake = criterion(fake_src, y_fake)
@@ -310,7 +295,7 @@ class TrainerStarGAN:
                 
                 # GAN loss
                 fake_post = self.G(pre_image, c_p_att)
-                gen_pair  = torch.cat([post_image, fake_post], dim=1)
+                gen_pair  = torch.cat([pre_image, fake_post], dim=1)
                 src_pred, cls_pred = self.D(gen_pair)
                 
                 # Calculate losses of generator and classifier
@@ -343,6 +328,32 @@ class TrainerStarGAN:
                 f"Discriminator Loss: {d_losses / len(self.train_loader):.4f}, "
                 f"Generator Loss: {ge_losses / len(self.train_loader):.4f}"
             )
+            
+            # Generate Images
+            if epoch % 5 == 0:
+                # with torch.no_grad():
+                #     # generate samples
+                #     fake = self.G(fixed_pre, fixed_c_post)
+                #     recon = self.G_reconstruct(fake, fixed_c_pre)
+
+                # # make a grid: rows = batch size, cols = [pre, fake, recon]
+                # grid = vutils.make_grid(
+                #     torch.cat([fixed_pre, fake, recon], dim=0),
+                #     nrow=fixed_pre.size(0),
+                #     normalize=True, scale_each=True
+                # )
+                # self.writer.add_image('Samples/pre→post→recon', grid, epoch)
+                
+                print(f"Saving checkpoint at epoch {epoch}")
+                ckpt = {
+                    'epoch': epoch,
+                    'G': self.G.state_dict(),
+                    'G_reconstruct': self.G_reconstruct.state_dict(),
+                    'D': self.D.state_dict(),
+                    'optimizer_ge': optimizer_ge.state_dict(),
+                    'optimizer_d': optimizer_d.state_dict(),
+                }
+                torch.save(ckpt, os.path.join(self.checkpoint_dir, f'ckpt_epoch{epoch}.pt'))
 
         self.writer.close()
 
@@ -351,7 +362,7 @@ num_epochs = 150
 lr_adam = 2e-4
 cls_weight = 1.0 # lambda_cls
 recon_weight = 10.0 # lambda_rec
-resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch20.pt')  
+resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch55.pt')  
 
 class Args:
     def __init__(self):
