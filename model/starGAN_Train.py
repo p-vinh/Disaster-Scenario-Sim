@@ -1,11 +1,7 @@
-
 import PIL
 from PIL import Image
-
-# re-inject the old name for TensorBoard
 Image.ANTIALIAS = Image.Resampling.LANCZOS
 PIL.Image.ANTIALIAS = Image.Resampling.LANCZOS
-
 import collections
 import collections.abc
 collections.Container = collections.abc.Container
@@ -231,6 +227,12 @@ class TrainerStarGAN:
             lr=self.args.lr_adam, betas=(0.5, 0.999)
         )
         
+        if torch.cuda.device_count() > 1:
+           print(f"Found {torch.cuda.device_count()} GPUs, parallelizing...")
+           self.G             = nn.DataParallel(self.G)
+           self.G_reconstruct = nn.DataParallel(self.G_reconstruct)
+           self.D             = nn.DataParallel(self.D)
+        
         start_epoch = 0
         if getattr(self.args, 'resume', None):
             ckpt_path = self.args.resume
@@ -244,11 +246,7 @@ class TrainerStarGAN:
                 start_epoch = ckpt['epoch'] + 1
                 print(f"Resumed from checkpoint '{ckpt_path}' at epoch {start_epoch}")
 
-        if torch.cuda.device_count() > 1:
-           print(f"Found {torch.cuda.device_count()} GPUs, parallelizing…")
-           self.G             = nn.DataParallel(self.G)
-           self.G_reconstruct = nn.DataParallel(self.G_reconstruct)
-           self.D             = nn.DataParallel(self.D)
+
 
 
         criterion = nn.BCELoss()
@@ -339,7 +337,7 @@ class TrainerStarGAN:
             )
             
             # Generate Images
-            if epoch % 1 == 0:
+            if epoch % 5 == 0:
                 with torch.no_grad():
                     # generate samples
                     fake = self.G(fixed_pre, fixed_c_post)
@@ -371,13 +369,13 @@ num_epochs = 150
 lr_adam = 2e-4
 cls_weight = 1.0 # lambda_cls
 recon_weight = 10.0 # lambda_rec
-# resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch80.pt')  
+resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch2.pt')  
 
 class Args:
     def __init__(self):
         self.num_epochs = num_epochs
         self.lr_adam = lr_adam
-        self.resume = None
+        self.resume = resume
         self.cls_weight = cls_weight
         self.recon_weight = recon_weight
         self.attr_dim = attr_dim # (0-6) {None, Fire, Flood, Wind, Earthquake, Tsunami, Volcano}
