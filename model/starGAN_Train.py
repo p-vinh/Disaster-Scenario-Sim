@@ -228,7 +228,7 @@ class TrainerStarGAN:
         )
         
         if torch.cuda.device_count() > 1:
-           print(f"Found {torch.cuda.device_count()} GPUs, parallelizing...")
+           print(f"Found {torch.cuda.device_count()} GPUs, parallelizing…")
            self.G             = nn.DataParallel(self.G)
            self.G_reconstruct = nn.DataParallel(self.G_reconstruct)
            self.D             = nn.DataParallel(self.D)
