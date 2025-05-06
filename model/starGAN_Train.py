@@ -212,9 +212,9 @@ class TrainerStarGAN:
 
     def train(self):
         """Training the StarGAN model."""
-        self.G             = Generator(img_channels=3,  attr_dim=args.attr_dim).to(device)
-        self.G_reconstruct = Generator(img_channels=3,  attr_dim=args.attr_dim).to(device)
-        self.D             = Discriminator(in_channels=3, n_classes=args.attr_dim).to(device)
+        self.G             = Generator(img_channels=3,  attr_dim=args.attr_dim).to(self.device)
+        self.G_reconstruct = Generator(img_channels=3,  attr_dim=args.attr_dim).to(self.device)
+        self.D             = Discriminator(in_channels=3, n_classes=args.attr_dim).to(self.device)
         
         optimizer_ge = optim.Adam(
                 list(self.G.parameters()) 
@@ -292,7 +292,7 @@ class TrainerStarGAN:
                     
                     # fake
                     fake_post = self.G(pre_image, c_p_att).detach()
-                    fake_src, _ = self.D(fake_post.detach())  # Discriminator output for Fake/True
+                    fake_src, _ = self.D(fake_post)  # Discriminator output for Fake/True
                     loss_d_fake = criterion(fake_src, torch.zeros_like(fake_src))
                     
                     d_real_loss += loss_d_real.item()
@@ -307,6 +307,9 @@ class TrainerStarGAN:
                 # ---------------------
                 # Train Generator + Encoder
                 # ---------------------
+                # Freeze discriminator parameters
+                for p in self.D.parameters(): p.requires_grad = False
+
                 optimizer_ge.zero_grad()
                 
                 # GAN loss
@@ -333,12 +336,14 @@ class TrainerStarGAN:
                 
                 loss_ge.backward()
                 optimizer_ge.step()
-
+                
+                # Unfreeze discriminator parameters
+                for p in self.D.parameters(): p.requires_grad = True
                 # Accumulate losses
                 ge_losses += loss_ge.item()
 
             # Log losses to TensorBoard
-            self.writer.add_scalar('Loss/Discriminator', d_losses / len(self.train_loader), epoch)
+            self.writer.add_scalar('Loss/Discriminator', d_losses / (len(self.train_loader) * self.critic_iter), epoch)
             self.writer.add_scalar('Loss/D_real', d_real_loss / (len(self.train_loader)*self.critic_iter), epoch)
             self.writer.add_scalar('Loss/D_fake', d_fake_loss / (len(self.train_loader)*self.critic_iter), epoch)
 
