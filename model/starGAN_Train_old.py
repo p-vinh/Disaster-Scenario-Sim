@@ -1,11 +1,4 @@
 
-import PIL
-from PIL import Image
-
-# re-inject the old name for TensorBoard
-Image.ANTIALIAS = Image.Resampling.LANCZOS
-PIL.Image.ANTIALIAS = Image.Resampling.LANCZOS
-
 import collections
 import collections.abc
 collections.Container = collections.abc.Container
@@ -13,6 +6,7 @@ import os
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset
+from PIL import Image
 from torchvision import transforms
 from torch.utils.tensorboard import SummaryWriter
 
@@ -218,7 +212,7 @@ class TrainerStarGAN:
         """Training the StarGAN model."""
         self.G             = Generator(img_channels=3,  attr_dim=args.attr_dim).to(device)
         self.G_reconstruct = Generator(img_channels=3,  attr_dim=args.attr_dim).to(device)
-        self.D             = Discriminator(in_channels=3, n_classes=args.attr_dim).to(device)
+        self.D             = Discriminator(in_channels=6, n_classes=args.attr_dim).to(device)
         
         optimizer_ge = optim.Adam(
                 list(self.G.parameters()) 
@@ -239,7 +233,10 @@ class TrainerStarGAN:
                 self.G.load_state_dict(ckpt['G'])
                 self.G_reconstruct.load_state_dict(ckpt['G_reconstruct'])
                 self.D.load_state_dict(ckpt['D'])
-                optimizer_ge.load_state_dict(ckpt['optimizer_ge'])
+                try:
+                    optimizer_ge.load_state_dict(ckpt['optimizer_ge'])
+                except ValueError:
+                    print("⚠️  Optimizer state mismatch—skipping optimizer_ge.load_state_dict()")
                 optimizer_d.load_state_dict(ckpt['optimizer_d'])
                 start_epoch = ckpt['epoch'] + 1
                 print(f"Resumed from checkpoint '{ckpt_path}' at epoch {start_epoch}")
@@ -281,14 +278,16 @@ class TrainerStarGAN:
                 # ---------------------
                 optimizer_d.zero_grad()
 
-                real_src, real_cls = self.D(post_image)  # Discriminator output for Fake/True and classification of attribute
+                real_pair = torch.cat([pre_image, post_image], dim=1)
+                real_src, real_cls = self.D(real_pair)  # Discriminator output for Fake/True and classification of attribute
                 y_real = torch.ones_like(real_src)
                 loss_d_real = criterion(real_src, y_real) \
                             + cls_weight * classification_criterion(real_cls, c_p_att)
                 
                 # fake
                 fake_post = self.G(pre_image, c_p_att).detach()
-                fake_src, _ = self.D(fake_post.detach())  # Discriminator output for Fake/True
+                fake_pair = torch.cat([pre_image, fake_post], dim=1) # Focus on the post-disaster image
+                fake_src, _ = self.D(fake_pair)
                 y_fake = torch.zeros_like(fake_src)
                 loss_d_fake = criterion(fake_src, y_fake)
 
@@ -305,7 +304,8 @@ class TrainerStarGAN:
                 
                 # GAN loss
                 fake_post = self.G(pre_image, c_p_att)
-                src_pred, cls_pred = self.D(fake_post)
+                gen_pair  = torch.cat([pre_image, fake_post], dim=1)
+                src_pred, cls_pred = self.D(gen_pair)
                 
                 # Calculate losses of generator and classifier
                 loss_g_adv = criterion(src_pred, torch.ones_like(src_pred))
@@ -339,19 +339,19 @@ class TrainerStarGAN:
             )
             
             # Generate Images
-            if epoch % 1 == 0:
-                with torch.no_grad():
-                    # generate samples
-                    fake = self.G(fixed_pre, fixed_c_post)
-                    recon = self.G_reconstruct(fake, fixed_c_pre)
+            if epoch % 5 == 0:
+                # with torch.no_grad():
+                #     # generate samples
+                #     fake = self.G(fixed_pre, fixed_c_post)
+                #     recon = self.G_reconstruct(fake, fixed_c_pre)
 
-                # make a grid: rows = batch size, cols = [pre, fake, recon]
-                grid = vutils.make_grid(
-                    torch.cat([fixed_pre, fake, recon], dim=0),
-                    nrow=fixed_pre.size(0),
-                    normalize=True, scale_each=True
-                )
-                self.writer.add_image('Samples/pre→post→recon', grid, epoch)
+                # # make a grid: rows = batch size, cols = [pre, fake, recon]
+                # grid = vutils.make_grid(
+                #     torch.cat([fixed_pre, fake, recon], dim=0),
+                #     nrow=fixed_pre.size(0),
+                #     normalize=True, scale_each=True
+                # )
+                # self.writer.add_image('Samples/pre→post→recon', grid, epoch)
                 
                 print(f"Saving checkpoint at epoch {epoch}")
                 ckpt = {
@@ -371,13 +371,13 @@ num_epochs = 150
 lr_adam = 2e-4
 cls_weight = 1.0 # lambda_cls
 recon_weight = 10.0 # lambda_rec
-# resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch80.pt')  
+resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch80.pt')  
 
 class Args:
     def __init__(self):
         self.num_epochs = num_epochs
         self.lr_adam = lr_adam
-        self.resume = None
+        self.resume = resume
         self.cls_weight = cls_weight
         self.recon_weight = recon_weight
         self.attr_dim = attr_dim # (0-6) {None, Fire, Flood, Wind, Earthquake, Tsunami, Volcano}
