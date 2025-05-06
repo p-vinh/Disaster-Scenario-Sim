@@ -207,6 +207,7 @@ class TrainerStarGAN:
         self.train_loader = train_loader
         self.device = device
         self.writer = SummaryWriter(log_dir='./logs')
+        self.critic_iter = getattr(args, 'critic_iter', 5)
         self.checkpoint_dir = getattr(args, 'checkpoint_dir', './checkpoints')
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
@@ -273,28 +274,27 @@ class TrainerStarGAN:
                     c_d.to(self.device),
                     c_p_att.to(self.device),
                 )
-
-                # ---------------------
-                # Train Discriminator
-                # ---------------------
-                optimizer_d.zero_grad()
-
-                real_src, real_cls = self.D(post_image)  # Discriminator output for Fake/True and classification of attribute
-                y_real = torch.ones_like(real_src)
-                loss_d_real = criterion(real_src, y_real) \
-                            + cls_weight * classification_criterion(real_cls, c_p_att)
                 
-                # fake
-                fake_post = self.G(pre_image, c_p_att).detach()
-                fake_src, _ = self.D(fake_post.detach())  # Discriminator output for Fake/True
-                y_fake = torch.zeros_like(fake_src)
-                loss_d_fake = criterion(fake_src, y_fake)
+                for _ in range(self.critic_iter):
+                    # ---------------------
+                    # Train Discriminator
+                    # ---------------------
+                    optimizer_d.zero_grad()
+
+                    real_src, real_cls = self.D(post_image)  # Discriminator output for Fake/True and classification of attribute
+                    loss_d_real = criterion(real_src, torch.ones_like(real_src)) \
+                                + cls_weight * classification_criterion(real_cls, c_p_att)
+                    
+                    # fake
+                    fake_post = self.G(pre_image, c_p_att).detach()
+                    fake_src, _ = self.D(fake_post.detach())  # Discriminator output for Fake/True
+                    loss_d_fake = criterion(fake_src, torch.zeros_like(fake_src))
 
 
-                # Backpropagation for discriminator
-                loss_d = (loss_d_real + loss_d_fake) / 2
-                loss_d.backward()
-                optimizer_d.step()
+                    # Backpropagation for discriminator
+                    loss_d = (loss_d_real + loss_d_fake) / 2
+                    loss_d.backward()
+                    optimizer_d.step()
 
                 # ---------------------
                 # Train Generator + Encoder
@@ -369,6 +369,7 @@ num_epochs = 150
 lr_adam = 2e-4
 cls_weight = 1.0 # lambda_cls
 recon_weight = 10.0 # lambda_rec
+crit_ic_iter = 5 # number of critic iterations
 resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch2.pt')  
 
 class Args:
@@ -378,6 +379,7 @@ class Args:
         self.resume = resume
         self.cls_weight = cls_weight
         self.recon_weight = recon_weight
+        self.critic_iter = crit_ic_iter
         self.attr_dim = attr_dim # (0-6) {None, Fire, Flood, Wind, Earthquake, Tsunami, Volcano}
 
 
