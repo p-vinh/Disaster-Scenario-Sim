@@ -14,7 +14,6 @@ from torch.utils.tensorboard import SummaryWriter
 
 import torch.nn.functional as F
 import torchvision.utils as vutils
-from barbar import Bar
 import pathlib
 import json
 
@@ -266,7 +265,13 @@ class TrainerStarGAN:
             ge_losses = 0
             d_losses = 0
             
-            for pre_image, post_image, c_d, c_p_att in Bar(self.train_loader):
+            adv_loss = 0
+            cls_loss = 0
+            recon_loss = 0
+            d_real_loss = 0
+            d_fake_loss = 0
+            
+            for pre_image, post_image, c_d, c_p_att in self.train_loader:
                 # Move data to device
                 pre_image, post_image, c_d, c_p_att = (
                     pre_image.to(self.device),
@@ -289,12 +294,15 @@ class TrainerStarGAN:
                     fake_post = self.G(pre_image, c_p_att).detach()
                     fake_src, _ = self.D(fake_post.detach())  # Discriminator output for Fake/True
                     loss_d_fake = criterion(fake_src, torch.zeros_like(fake_src))
-
+                    
+                    d_real_loss += loss_d_real.item()
+                    d_fake_loss += loss_d_fake.item()
 
                     # Backpropagation for discriminator
                     loss_d = (loss_d_real + loss_d_fake) / 2
                     loss_d.backward()
                     optimizer_d.step()
+                    d_losses += loss_d.item()
 
                 # ---------------------
                 # Train Generator + Encoder
@@ -314,21 +322,31 @@ class TrainerStarGAN:
                 rec_pre = self.G_reconstruct(fake_post, c_d)
                 loss_pre_rec = reconstruction_criterion(rec_pre, pre_image)
                 
+                adv_loss += loss_g_adv.item()
+                cls_loss += loss_g_cls.item()
+                recon_loss += loss_pre_rec.item()
+                
                 loss_ge = loss_g_adv \
                         + cls_weight * loss_g_cls \
                         + recon_weight * loss_pre_rec
 
+                
                 loss_ge.backward()
                 optimizer_ge.step()
 
                 # Accumulate losses
                 ge_losses += loss_ge.item()
-                d_losses += loss_d.item()
 
             # Log losses to TensorBoard
             self.writer.add_scalar('Loss/Discriminator', d_losses / len(self.train_loader), epoch)
-            self.writer.add_scalar('Loss/Generator', ge_losses / len(self.train_loader), epoch)
+            self.writer.add_scalar('Loss/D_real', d_real_loss / (len(self.train_loader)*self.critic_iter), epoch)
+            self.writer.add_scalar('Loss/D_fake', d_fake_loss / (len(self.train_loader)*self.critic_iter), epoch)
 
+            self.writer.add_scalar('Loss/Generator', ge_losses / len(self.train_loader), epoch)
+            self.writer.add_scalar('Loss/Generator/Adv', adv_loss / len(self.train_loader), epoch)
+            self.writer.add_scalar('Loss/Generator/Cls', cls_loss / len(self.train_loader), epoch)
+            self.writer.add_scalar('Loss/Generator/Rec', recon_loss / len(self.train_loader), epoch)
+            
             # Print progress
             print(
                 f"Epoch [{epoch}/{self.args.num_epochs}] "
@@ -370,7 +388,7 @@ lr_adam = 2e-4
 cls_weight = 1.0 # lambda_cls
 recon_weight = 10.0 # lambda_rec
 crit_ic_iter = 5 # number of critic iterations
-resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch2.pt')  
+resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch30.pt')  
 
 class Args:
     def __init__(self):
