@@ -191,10 +191,32 @@ class Discriminator(nn.Module):
 
     def forward(self, x):
         h = self.shared(x)
-        out_src = torch.sigmoid(self.src(h))
+        out_src = self.src(h)
         out_cls = self.cls(h).view(x.size(0), -1)  # global pool
         return out_src, out_cls
-
+    
+def compute_gradient_penalty(D, real_samples, fake_samples, device, gp_lambda):
+    # Random weight term for interpolation between real and fake samples
+    alpha = torch.rand(real_samples.size(0), 1, 1, 1, device=device)
+    interpolates = (alpha * real_samples + (1 - alpha) * fake_samples).requires_grad_(True)
+    # Calculate discriminator output
+    d_interpolates, _ = D(interpolates)
+    # Compute gradients of D w.r.t. interpolated samples
+    grad_outputs = torch.ones_like(d_interpolates)
+    gradients = torch.autograd.grad(
+        outputs=d_interpolates,
+        inputs=interpolates,
+        grad_outputs=grad_outputs,
+        create_graph=True,
+        retain_graph=True,
+        only_inputs=True
+    )[0]
+    # Flatten gradients
+    gradients = gradients.view(gradients.size(0), -1)
+    # Compute penalty
+    gradient_norm = gradients.norm(2, dim=1)
+    penalty = gp_lambda * ((gradient_norm - 1) ** 2).mean()
+    return penalty
 # %% [markdown]
 # ## Training
 # 
@@ -206,7 +228,7 @@ class TrainerStarGAN:
         self.train_loader = train_loader
         self.device = device
         self.writer = SummaryWriter(log_dir='./logs')
-        self.critic_iter = getattr(args, 'critic_iter', 5)
+        self.gradient_penalty_lambda = getattr(args, 'gradient_penalty_lambda', 10.0)
         self.checkpoint_dir = getattr(args, 'checkpoint_dir', './checkpoints')
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
@@ -261,6 +283,7 @@ class TrainerStarGAN:
         fixed_c_pre, fixed_c_post = fixed_c_pre.to(self.device), fixed_c_post.to(self.device)
 
         for epoch in range(start_epoch, self.args.num_epochs + 1):
+            print(f"\nStarting epoch {epoch}/{self.args.num_epochs}")
             self.G.train(); self.G_reconstruct.train(); self.D.train()
             ge_losses = 0
             d_losses = 0
@@ -268,8 +291,10 @@ class TrainerStarGAN:
             adv_loss = 0
             cls_loss = 0
             recon_loss = 0
+            adv_d_loss = 0
+            cls_d_loss = 0
+            d_gp_loss = 0
             d_real_loss = 0
-            d_fake_loss = 0
             
             for pre_image, post_image, c_d, c_p_att in self.train_loader:
                 # Move data to device
@@ -280,35 +305,37 @@ class TrainerStarGAN:
                     c_p_att.to(self.device),
                 )
                 
-                for _ in range(self.critic_iter):
-                    # ---------------------
-                    # Train Discriminator
-                    # ---------------------
-                    optimizer_d.zero_grad()
+                # ---------------------
+                # Train Discriminator
+                # ---------------------
+                optimizer_d.zero_grad()
 
-                    real_src, real_cls = self.D(post_image)  # Discriminator output for Fake/True and classification of attribute
-                    loss_d_real = criterion(real_src, torch.ones_like(real_src)) \
-                                + cls_weight * classification_criterion(real_cls, c_p_att)
-                    
-                    # fake
-                    fake_post = self.G(pre_image, c_p_att).detach()
-                    fake_src, _ = self.D(fake_post)  # Discriminator output for Fake/True
-                    loss_d_fake = criterion(fake_src, torch.zeros_like(fake_src))
-                    
-                    d_real_loss += loss_d_real.item()
-                    d_fake_loss += loss_d_fake.item()
+                real_src, real_cls = self.D(post_image)  # Discriminator output for Fake/True and classification of attribute
+                # loss_d_real = criterion(real_src, torch.ones_like(real_src))
+                
+                # fake
+                fake_post = self.G(pre_image, c_p_att).detach()
+                fake_src, _ = self.D(fake_post)  # Discriminator output for Fake/True
+                # loss_d_fake = criterion(fake_src, torch.zeros_like(fake_src))
+                
+                loss_cls_d = classification_criterion(real_cls, c_p_att)
+                loss_d_adv = fake_src.mean() - real_src.mean()
+                
+                gp = compute_gradient_penalty(self.D, post_image, fake_post, self.device, self.gradient_penalty_lambda)
 
-                    # Backpropagation for discriminator
-                    loss_d = (loss_d_real + loss_d_fake) / 2
-                    loss_d.backward()
-                    optimizer_d.step()
-                    d_losses += loss_d.item()
+                # Backpropagation for discriminator
+                loss_d = loss_d_adv  + gp + cls_weight * loss_cls_d
+                loss_d.backward()
+                optimizer_d.step()
+                d_losses += loss_d.item()
+                adv_d_loss += loss_d_adv.item()
+                cls_d_loss += loss_cls_d.item()
+                d_gp_loss += gp.item()
+                d_real_loss += real_src.mean().item()
 
                 # ---------------------
                 # Train Generator + Encoder
                 # ---------------------
-                # Freeze discriminator parameters
-                for p in self.D.parameters(): p.requires_grad = False
 
                 optimizer_ge.zero_grad()
                 
@@ -317,7 +344,8 @@ class TrainerStarGAN:
                 src_pred, cls_pred = self.D(fake_post)
                 
                 # Calculate losses of generator and classifier
-                loss_g_adv = criterion(src_pred, torch.ones_like(src_pred))
+                # loss_g_adv = criterion(src_pred, torch.ones_like(src_pred))
+                loss_g_adv = -src_pred.mean()
                 loss_g_cls = classification_criterion(cls_pred, c_p_att)
 
                 # reconstruction loss: bring fake back → original
@@ -325,27 +353,25 @@ class TrainerStarGAN:
                 rec_pre = self.G_reconstruct(fake_post, c_d)
                 loss_pre_rec = reconstruction_criterion(rec_pre, pre_image)
                 
-                adv_loss += loss_g_adv.item()
-                cls_loss += loss_g_cls.item()
-                recon_loss += loss_pre_rec.item()
-                
+                # Backpropagation for generator
                 loss_ge = loss_g_adv \
                         + cls_weight * loss_g_cls \
                         + recon_weight * loss_pre_rec
-
                 
                 loss_ge.backward()
                 optimizer_ge.step()
                 
-                # Unfreeze discriminator parameters
-                for p in self.D.parameters(): p.requires_grad = True
                 # Accumulate losses
                 ge_losses += loss_ge.item()
+                adv_loss += loss_g_adv.item()
+                cls_loss += loss_g_cls.item()
+                recon_loss += loss_pre_rec.item()
 
             # Log losses to TensorBoard
-            self.writer.add_scalar('Loss/Discriminator', d_losses / (len(self.train_loader) * self.critic_iter), epoch)
-            self.writer.add_scalar('Loss/D_real', d_real_loss / (len(self.train_loader)*self.critic_iter), epoch)
-            self.writer.add_scalar('Loss/D_fake', d_fake_loss / (len(self.train_loader)*self.critic_iter), epoch)
+            self.writer.add_scalar('Loss/Discriminator', d_losses / len(self.train_loader), epoch)
+            self.writer.add_scalar('Loss/Discriminator/Adv', loss_d_adv / len(self.train_loader), epoch)
+            self.writer.add_scalar('Loss/Discriminator/Cls', loss_cls_d / len(self.train_loader), epoch)
+            self.writer.add_scalar('Loss/Discriminator/GP', d_gp_loss / len(self.train_loader), epoch)
 
             self.writer.add_scalar('Loss/Generator', ge_losses / len(self.train_loader), epoch)
             self.writer.add_scalar('Loss/Generator/Adv', adv_loss / len(self.train_loader), epoch)
@@ -388,21 +414,21 @@ class TrainerStarGAN:
         self.writer.close()
 
 
-num_epochs = 150
-lr_adam = 2e-4
+num_epochs = 100
+lr_adam = 0.0001
 cls_weight = 1.0 # lambda_cls
 recon_weight = 10.0 # lambda_rec
-crit_ic_iter = 5 # number of critic iterations
-resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch30.pt')  
+
+# resume = os.path.join(base_dir, 'checkpoints', 'ckpt_epoch30.pt')  
 
 class Args:
     def __init__(self):
         self.num_epochs = num_epochs
         self.lr_adam = lr_adam
-        self.resume = resume
+        self.resume = None
         self.cls_weight = cls_weight
         self.recon_weight = recon_weight
-        self.critic_iter = crit_ic_iter
+        self.gradient_penalty_lambda = 10.0
         self.attr_dim = attr_dim # (0-6) {None, Fire, Flood, Wind, Earthquake, Tsunami, Volcano}
 
 
