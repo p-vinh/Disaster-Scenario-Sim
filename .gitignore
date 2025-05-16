@@ -17,3 +17,4 @@ spacenet/models/logs/
 /spacenet/inference/__pycache__/
 .venv
 spacenet/src/models/cuda_12.6.0_560.28.03_linux.run
+model/TensorboardLogs/DisasterGAN/events.out.tfevents.1746816764.cn14.16176.0
